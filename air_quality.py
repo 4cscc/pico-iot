@@ -1,8 +1,7 @@
 # air_quality.py
 from machine import Pin
-from util import try_until_runs, set_timeout
+from util import  create_message_packet, try_until_runs, set_timeout, Networker
 import utime
-from crc import create_message_packet
 from umqtt.simple import MQTTClient
 
 import json
@@ -12,7 +11,7 @@ MEASURE_AIR_QUALITY = bytearray([0x20, 0x08])
 MEASURE_RAW_SIGNALS = bytearray([0x20, 0x50])
 
 class SGP30:
-    def __init__(self, bus, mqtt_handler, i2c_address=0x58, indicator_pin="LED", topic="sensor/air_quality", sensor_id="air_quality_1"):
+    def __init__(self, bus, mqtt_handler, i2c_address=0x58, indicator_pin="LED", topic="sensor/air_quality", sensor_id="air_quality"):
         utime.sleep_ms(10)
 
         self.i2c_address = i2c_address
@@ -86,12 +85,16 @@ class SGP30:
         self.measureAirQuality()
         self.indicator_pin.on()
 
-        measurement_values = json.dumps({self.sensor_id : {'co2': int.from_bytes(self.co2, 'big'),
-                              'tvoc': int.from_bytes(self.tvoc, 'big'),
-                              'h2': int.from_bytes(self.h2, 'big'),
-                              'ethanol': int.from_bytes(self.ethanol, 'big'),
-                              'elapsed_time': self.elapsed_time
-                              }})
+        measurement_values = json.dumps(
+            {'sensor': self.sensor_id, 
+             'data':
+                {'co2': int.from_bytes(self.co2, 'big'),
+                 'tvoc': int.from_bytes(self.tvoc, 'big'),
+                 'h2': int.from_bytes(self.h2, 'big'),
+                 'ethanol': int.from_bytes(self.ethanol, 'big'),
+                 'elapsed_time': self.elapsed_time
+                }})
+
         print(measurement_values)                      
         return measurement_values
 
@@ -104,7 +107,7 @@ class SGP30:
 
 if __name__ == '__main__':
     from umqtt.simple import MQTTClient
-    from network_setup import Networker
+    from util import Networker
     from util import setup_I2C_bus
     
     wlan = Networker().establish_connection()
