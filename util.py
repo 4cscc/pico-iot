@@ -1,19 +1,36 @@
-from machine import Pin, I2C
+import network
+import rp2
+import machine
 import utime
-import errno
-
-def setup_I2C_bus():
-    i2c = I2C(0,
-              scl=Pin(1, Pin.PULL_UP),
-              sda=Pin(0, Pin.PULL_UP),
-              freq=100000)
-    utime.sleep_ms(100)
-    print(i2c.scan())
-    return i2c
 
 
-# To be used to repeatedly try I2C operations that can fail with an OSError [errno 5] IO error#
-#def try_until_runs(timeout):
+# network stuff
+rp2.country("US")
+
+
+def connect_network(max_wait=10):
+    """Connect to the network, return the wlan object"""
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect("sensor_hub", "FourCorners")
+    while max_wait > 0:
+        if wlan.status() < 0 or wlan.status() >= 3:
+            break
+        max_wait -= 1
+        print(
+            "waiting for connection, current status: {}".format(wlan.status())
+        )
+        utime.sleep(1)
+    print("Connection Established: {}".format(wlan.status()))
+
+    if wlan.status() != 3:
+        print("Connection Failed, resetting machine")
+        machine.reset()
+
+    return wlan
+
+
+# other 
 def try_until_runs(func):
     def wrapper_try_until_runs(*args, **kwargs):
         while True:
@@ -24,21 +41,3 @@ def try_until_runs(func):
                 continue
             except Exception as e:
                 raise e
-
-    return wrapper_try_until_runs
-
-def set_timeout(seconds):
-    def timeout_tryer(func):
-        def timeout_tryer_wrapper(*args, **kwargs):
-            start_time = utime.mktime(utime.gmtime())
-            while (utime.mktime(utime.gmtime()) - start_time) < seconds:
-                return func(*args, **kwargs)
-            raise TimeoutError
-        return timeout_tryer_wrapper
-    return timeout_tryer
-
-
-#    return try_until_runs_dec
-
-SUCCESS = 0
-FAILURE = 1

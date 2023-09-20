@@ -1,62 +1,70 @@
-from util import try_until_runs, set_timeout
-from machine import Pin, I2C
-from umqtt.simple import MQTTClient
-import json
-from crc import create_message_packet
-
+from util import try_until_runs
+from machine import Pin, ADC
 import utime
+import json
+
+
+class AnalogSensor:
+    def __init__(self, name, pin):
+        self.pin = ADC(Pin(pin))
+        self.name = name
+
+    def get_reading(self):
+        return self.pin.read_u16()
+
 
 class Sensor:
-    def __init__(self, device_name: str, mqtt_handler, topic: str, indicator_pin="LED"):
-
-        self.mqtt_handler = mqtt_handler
-        self.topic = topic
-        self.indicator_pin = Pin(indicator_pin, Pin.OUT)
-        self.measurements = json
-        self.device_name = device_name
-
-        utime.sleep_us(100)
-
-        self.intialize_sensor()
-    
-    def intialize_sensor(self):
-        self.indicator_pin.on()
-    
-    def measure(self):
-        raise NotImplementedError
-
-    def publish_to_broker(self):
-        self.mqtt_handler.connect()
-        self.mqtt_handler.publish(topic = self.topic.encode('utf-8'),
-                                  msg = self.measurements)
-
-class AnalogSensor(Sensor):
-    def __init__(self, measurement_pin, *args, **kwargs):
-        super.__init__(args, kwargs)
-        self.measurement_pin = measurement_pin
-
-class DigitalSensor(Sensor):
-    def __init__(self, bus: I2C, bus_addr, use_checksums = False, *args, **kwargs):
-        super.__init__(args, kwargs)
+    def __init__(
+        self,
+        mqtt_handler,
+        topic,
+        sensor_id,
+        measurements,
+        bus=None,
+        i2c_address=None,
+        indicator_pin="LED",
+        checksum_method=None,
+    ):
+        self.i2c_address = i2c_address
         self.bus = bus
-        self.bus_addr = bus_addr
-        self.use_checksums = use_checksums
-        self.recent_readings = bytearray()
+        self.mqtt_handler = mqtt_handler
+        self.indicator_pin = Pin(indicator_pin, Pin.OUT)
+        self.topic = topic
+        self.sensor_id = sensor_id
+        self.start_time = utime.mktime(utime.localtime())
+        self.checksum_method = checksum_method
+        self.elapsed_time = 0
+        self.sensors = measurements
+        # self.display = SevenSegmentDisplay(15, [17,16,14,13,12,18,19])
 
-    @set_timeout(10)
-    @try_until_runs
-    def write_i2c(self, msg):
-        if self.use_checksums == True:
-            msg = create_message_packet(msg)
-        elif type(msg) != bytes:
-            msg = msg.encode('utf-8')
+    def measurements(self):
+        measurements = json.dumps(
+            {
+                "sensor": self.sensor_id,
+                "data": {
+                    sensor.name: sensor.get_reading()
+                    for sensor in self.sensors
+                },
+            }
+        )
+        print(measurements)
+        return measurements
 
-        self.bus.writeto(self.bus_addr, msg)
-    
-    @set_timeout(10)
     @try_until_runs
-    def read_i2c(self, num_bytes):
+    def write(self, msg):
+        if self.checksum_method is not None:
+            msg = self.checksum_method(msg)
+        self.bus.writeto(self.i2c_address, msg)
+
+    @try_until_runs
+    def read(self, num_bytes):
         readings = bytearray(num_bytes)
-        self.bus.readfrom_into(self.bus_addr, readings)
-        self.recent_readings = readings
-        return self.recent_readings
+        self.bus.readfrom_into(self.i2c_address, readings)
+        return readings
+
+    def publish(self):
+        self.mqtt_handler.connect()
+        self.mqtt_handler.publish(
+            topic=bytes(self.topic, "utf-8"), msg=self.measurements(), qos=0
+        )
+        self.mqtt_handler.disconnect()
